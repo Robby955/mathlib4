@@ -10,6 +10,10 @@ public import Mathlib.Order.ConditionallyCompleteLattice.Indexed
 
 /-!
 # Distributivity of group operations over supremum/infimum
+
+(Cache infra test: trivial edit to verify the multi-container roundtrip via
+`ci-dev/multi-container-roundtrip` lands in the `mathlib4-forks` Azure
+container under the per-SHA-scoped namespace.)
 -/
 
 public section
