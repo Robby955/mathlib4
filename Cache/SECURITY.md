@@ -179,12 +179,14 @@ level, so the container boundary alone suffices for isolation.
 
 ## URL paths in each container
 
-`Cache/Infra.lean:Container.flatPath` controls whether artifacts in a given
-container are stored flat (`/f/{hash}.ltar`) or prefixed by repo
-(`/f/{repo}/{hash}.ltar`):
+`Cache/Infra.lean:Container.flatPath` determines whether artifacts are
+stored flat or repo-prefixed; `MATHLIB_CACHE_REPO_SCOPE` (set by
+`cache-trust-dispatch` only for `forks` uploads) inserts a SHA segment
+between repo and hash on prefixed paths.
 
-- `master` — always flat.
-- `forks`, `nightly-testing`, `pr-toolchain-tests` — always prefixed.
+- `master` — `/f/{hash}.ltar`
+- `forks` — `/f/{repo}/{sha}/{hash}.ltar`
+- `nightly-testing`, `pr-toolchain-tests` — `/f/{repo}/{hash}.ltar`
 
 ## Explicitly out of scope
 
