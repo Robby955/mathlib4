@@ -1,11 +1,5 @@
 # Cache trust model & security notes
 
-> **If you change the trust model** — container assignments, Azure RBAC, the
-> `cache-trust-dispatch` policy table, or the OIDC federation subjects on any
-> writer — **update this file in the same PR.** This document is the canonical
-> implementation-level reference for how the cache stays trust-bounded; if it
-> drifts from reality, future maintainers won't be able to audit the design.
-
 ## Background
 
 The mathlib build cache holds CI-built `.olean` artifacts that are shared
@@ -28,12 +22,12 @@ consumers at level T or below.
 Four containers on the `lakecache` Azure Blob Storage account, each fed by a
 dedicated CI-job class:
 
-| Container                          | Writer (Entra app)                              | OIDC subject pattern (GitHub ref)                            | Trust |
-|------------------------------------|-------------------------------------------------|--------------------------------------------------------------|-------|
-| `mathlib4-master`                  | "Mathlib CI Cache Writer - Master"              | `mathlib4`: `refs/heads/master`, `staging`                   | high  |
-| `mathlib4-forks`                   | "Mathlib CI Cache Writer - Non-Master"          | `mathlib4`: `pull_request` and `refs/heads/*` (wildcard)     | medium |
-| `mathlib4-nightly-testing`         | "Mathlib CI Cache Writer - Nightly Testing"     | `mathlib4-nightly-testing`: `refs/heads/{nightly-testing, nightly-testing-green}` + `refs/heads/bump/*` wildcard | medium |
-| `mathlib4-pr-toolchain-tests`      | "Mathlib CI Cache Writer - PR Toolchain Tests"  | `mathlib4-nightly-testing`: `refs/heads/*` wildcard          | low |
+| Container                          | Writer (Entra app)                              | Branches that may write                                                    | Trust  |
+|------------------------------------|-------------------------------------------------|----------------------------------------------------------------------------|--------|
+| `mathlib4-master`                  | "Mathlib CI Cache Writer - Master"              | mathlib4: `master` and `staging`                                           | high   |
+| `mathlib4-forks`                   | "Mathlib CI Cache Writer - Non-Master"          | mathlib4: PR builds (from forks) and non-master branches                   | medium |
+| `mathlib4-nightly-testing`         | "Mathlib CI Cache Writer - Nightly Testing"     | nightly-testing repo: `nightly-testing`, `nightly-testing-green`, `bump/*` | medium |
+| `mathlib4-pr-toolchain-tests`      | "Mathlib CI Cache Writer - PR Toolchain Tests"  | nightly-testing repo: any other branch (e.g. `lean-pr-testing-*`)          | low    |
 
 Writer-to-container mapping is enforced at the Azure side via per-container
 `Storage Blob Data Contributor` RBAC grants. A workflow whose
@@ -58,8 +52,8 @@ below).
 
 ## Four enforcement layers
 
-Listed in order of strength. The first two enforce the trust boundary; the
-last two provide correctness guarantees and defense in depth.
+The first two enforce the trust boundary; the last two provide correctness
+guarantees and additional containment.
 
 ### 1. OIDC + Azure RBAC (server-side, immutable from inside any workflow)
 
@@ -112,7 +106,7 @@ Implementation: `.github/workflows/build_template.yml` — the `shell:`
 defaults on the build job, and the explicit landrun shells on the stage
 steps.
 
-### 4. Hash partitioning (defense in depth)
+### 4. Hash partitioning
 
 Cache keys are derived from source content + imports + a root hash that
 includes `lean-toolchain`, `lakefile.lean`, and `lake-manifest.json` content
@@ -120,11 +114,10 @@ includes `lean-toolchain`, `lakefile.lean`, and `lake-manifest.json` content
 live in disjoint hash spaces, so even within the same container, blobs at
 different keys cannot collide unless an attacker can align all root-hash
 inputs. With Layer 3 in place, an attacker cannot modify those inputs
-between elaboration and pack time, so this layer holds.
+between elaboration and pack time.
 
 This layer is insufficient on its own: it depends on Layer 3 to keep the
-inputs honest, and on Layer 1 to bound damage if it ever fails. It is
-listed last because it should never be relied on as the sole defense.
+inputs honest, and on Layer 1 to bound damage if it ever fails.
 
 ## CI dispatch: how (repo, branch) gets routed
 
@@ -145,10 +138,7 @@ files never override it.
 User machines do not apply this dispatch. A maintainer running
 `lake exe cache get` locally on a `lean-pr-testing-*` checkout uses the
 strict per-repo default and must explicitly opt into widening with
-`--cache-from` or `MATHLIB_CACHE_FROM=…`. Trust policy lives in YAML on
-the CI side and in Lean on the user-machine side: explicit, auditable
-choices on the runners that hold the credentials, conservative defaults
-everywhere else.
+`--cache-from` or `MATHLIB_CACHE_FROM=…`.
 
 ## Per-commit namespace for fork-trust uploads
 
@@ -170,9 +160,8 @@ audit and discoverability handle, letting you list all of a given fork's
 uploads in one place.
 
 `master`, `nightly-testing`, and `pr-toolchain-tests` uploads are not
-SHA-scoped. Master has a single writer so within-trust replay is moot;
-the other two rely on the per-trust-level isolation that their dedicated
-containers already provide.
+SHA-scoped. Each of these containers receives uploads from a single trust
+level, so the container boundary alone suffices for isolation.
 
 ## URL paths in each container
 
