@@ -25,7 +25,7 @@ dedicated CI-job class:
 | Container                          | Writer (Entra app)                              | Branches that may write                                                    | Trust  |
 |------------------------------------|-------------------------------------------------|----------------------------------------------------------------------------|--------|
 | `mathlib4-master`                  | "Mathlib CI Cache Writer - Master"              | mathlib4: `master` and `staging`                                           | high   |
-| `mathlib4-forks`                   | "Mathlib CI Cache Writer - Non-Master"          | mathlib4: PR builds (from forks) and non-master branches                   | medium |
+| `mathlib4-forks`                   | "Mathlib CI Cache Writer - Non-Master"          | mathlib4: PR builds (from forks), non-master branches, and `bors try`      | medium |
 | `mathlib4-nightly-testing`         | "Mathlib CI Cache Writer - Nightly Testing"     | nightly-testing repo: `nightly-testing`, `nightly-testing-green`, `bump/*` | medium |
 | `mathlib4-pr-toolchain-tests`      | "Mathlib CI Cache Writer - PR Toolchain Tests"  | nightly-testing repo: any other branch (e.g. `lean-pr-testing-*`)          | low    |
 
@@ -76,18 +76,31 @@ on the Entra side.
 
 ### 2. `tools_branch` isolation of the cache binary
 
-The cache binary is compiled in a separate job and runner from a trusted
-branch (`master` on canonical mathlib4, `nightly-testing-green` on the
-nightly-testing repo). It is never built from the PR's checkout, so the
-PR's `lean-toolchain` never reaches the compiler that produces the cache
-binary. The PR build's `lake build` (in landrun, see below) writes only to
-its own runner's `pr-branch/.lake/`; the cache binary lives on a different
-ephemeral runner entirely (the `upload_cache` job).
+The cache binary is compiled from a trusted branch (`master` on canonical
+mathlib4, `nightly-testing-green` on the nightly-testing repo), never
+from the PR's checkout — the PR's `lean-toolchain` never reaches the
+compiler that produces the cache binary. The binary runs in two jobs:
+
+- `build` runs `cache get` (pre-build, to populate `.lake/build` from
+  remote artifacts) and `cache stage` (post-build, to pack the freshly
+  built `.olean` files into `.ltar` archives staged for upload).
+- `upload_cache` runs `cache put-staged` to PUT those staged archives to
+  Azure.
+
+Each job checks out tools-branch independently and builds its own copy of
+the cache binary from that source. The PR's `lake build` (in landrun,
+see below) writes only to its own runner's `pr-branch/.lake/`, where the
+cache binary later picks up the `.olean` outputs for packing.
+
+The two jobs also run on different runner pools: `build` uses self-hosted
+runners (the Hoskinson pool), while `upload_cache` runs on GitHub-hosted
+ephemeral runners. The OIDC bearer token is minted inside `upload_cache`
+and never enters the build runner, so a rooted self-hosted host cannot
+extract it.
 
 Implementation: `.github/workflows/build_template.yml` — the
-*Checkout tools branch* + *build cache executable* steps in the
-`upload_cache` job, plus the `tools-branch` checkout in the `build` job used
-for read-side `cache get`.
+*Checkout tools branch* + *build cache executable* steps in both the
+`build` and `upload_cache` jobs.
 
 ### 3. landrun read-only source tree
 
@@ -132,8 +145,9 @@ invoked by all three trust-aware jobs:
 - **post_steps** — needs `MATHLIB_CACHE_FROM` to verify the roundtrip by
   reading back this CI run's just-uploaded artifacts.
 
-The dispatch is loaded from master / tools-branch; PR-supplied workflow
-files never override it.
+The dispatch is loaded from master / tools-branch — via a sparse checkout
+of `workflow-actions/` pinned to `github.workflow_sha` — so PR-supplied
+workflow files never override it.
 
 User machines do not apply this dispatch. A maintainer running
 `lake exe cache get` locally on a `lean-pr-testing-*` checkout uses the
