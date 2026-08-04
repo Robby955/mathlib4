@@ -236,6 +236,18 @@ The typeclass argument is explicit: any instance can be used. -/
 def unitIsoSelf [Closed (𝟙_ C)] : ((𝟙_ C) ⟶[C] X) ≅ X :=
   (unitNatIso.app X).symm
 
+/-- The isomorphism `MonoidalClosed.unitIsoSelf` is evaluation at the tensor unit,
+up to the left unitor. -/
+lemma unitIsoSelf_hom [Closed (𝟙_ C)] :
+    (unitIsoSelf X).hom = (λ_ ((𝟙_ C) ⟶[C] X)).inv ≫ (ihom.ev (𝟙_ C)).app X :=
+  conjugateEquiv_adjunction_id (ihom.adjunction (𝟙_ C)) (leftUnitorNatIso C).inv X
+
+/-- Currying a morphism out of the tensor unit and then undoing the identification
+`MonoidalClosed.unitIsoSelf` recovers the morphism, up to the left unitor. -/
+lemma curry_unitIsoSelf_hom [Closed (𝟙_ C)] (H : 𝟙_ C ⊗ Y ⟶ X) :
+    curry H ≫ (unitIsoSelf X).hom = (λ_ Y).inv ≫ H := by
+  rw [unitIsoSelf_hom, leftUnitor_inv_naturality_assoc, whiskerLeft_curry_ihom_ev_app]
+
 section Pre
 
 variable {A B}
